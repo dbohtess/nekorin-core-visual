@@ -161,8 +161,8 @@ for (let i = 0; i < 85; i++) {
   sparks.add(s);
 }
 
-// M: one new node -> one brand-new private path.
-// The path does NOT exist before the node starts moving; the node draws it behind itself.
+// M creates ONE new persistent memory node with ONE brand-new orbit.
+// The orbit starts invisible and is drawn progressively behind the node.
 const memories = [];
 const memoryOrbitSignatures = [];
 
@@ -171,66 +171,103 @@ function angleDistance(a, b) {
   return Math.min(d, Math.PI * 2 - d);
 }
 
-function makeUniqueMemoryOrbit() {
+function createUniqueMemoryOrbit() {
   for (let attempt = 0; attempt < 80; attempt++) {
-    const rx = 2.20 + rnd() * 1.85;
-    const ry = 0.68 + rnd() * 1.25;
-    const zRot = rnd() * Math.PI;
-    const xRot = (rnd() - 0.5) * 0.95;
-    const yRot = (rnd() - 0.5) * 0.58;
-    const offset = new THREE.Vector3((rnd() - 0.5) * 0.34, (rnd() - 0.5) * 0.26, (rnd() - 0.5) * 0.18);
+    const radius = 2.2 + rnd() * 1.5;
+    const tiltX = (rnd() - 0.5) * Math.PI * 0.8;
+    const tiltY = (rnd() - 0.5) * Math.PI * 0.8;
+    const tiltZ = rnd() * Math.PI;
 
     const tooClose = memoryOrbitSignatures.some(o =>
-      Math.abs(o.rx - rx) < 0.28 &&
-      Math.abs(o.ry - ry) < 0.20 &&
-      angleDistance(o.zRot, zRot) < 0.22 &&
-      Math.abs(o.xRot - xRot) < 0.17 &&
-      Math.abs(o.yRot - yRot) < 0.17
+      Math.abs(o.radius - radius) < 0.24 &&
+      angleDistance(o.tiltX, tiltX) < 0.16 &&
+      angleDistance(o.tiltY, tiltY) < 0.16 &&
+      angleDistance(o.tiltZ, tiltZ) < 0.18
     );
     if (tooClose) continue;
 
-    memoryOrbitSignatures.push({ rx, ry, zRot, xRot, yRot });
+    memoryOrbitSignatures.push({ radius, tiltX, tiltY, tiltZ });
+
+    const segments = 220;
+    const positions = new Float32Array((segments + 1) * 3);
     const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(221 * 3), 3));
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geometry.setDrawRange(0, 0);
-    const color = rnd() > 0.38 ? C.red : C.gold;
-    const line = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.19, blending: THREE.AdditiveBlending }));
-    line.rotation.set(xRot, yRot, zRot);
-    line.position.copy(offset);
+
+    const line = new THREE.Line(
+      geometry,
+      new THREE.LineBasicMaterial({
+        color: 0x4fc3f7,
+        transparent: true,
+        opacity: 0.60,
+        blending: THREE.AdditiveBlending,
+      })
+    );
+    line.rotation.set(tiltX, tiltY, tiltZ);
     root.add(line);
-    return { rx, ry, line, color };
+
+    return { radius, line, segments };
   }
+
   throw new Error('Could not generate a unique memory orbit');
 }
 
-function localOrbitPoint(def, angle) {
-  return new THREE.Vector3(Math.cos(angle) * def.rx, Math.sin(angle) * def.ry, 0);
+function memoryOrbitPoint(def, angle) {
+  const p = new THREE.Vector3(
+    Math.cos(angle) * def.radius,
+    Math.sin(angle) * def.radius,
+    0
+  );
+  p.applyEuler(def.line.rotation);
+  return p;
 }
 
-function updateGrowingOrbit(mem) {
-  const count = Math.min(221, Math.max(2, Math.floor(mem.progress * 220) + 1));
+function drawMemoryOrbitBehind(mem) {
+  const count = Math.min(
+    mem.orbit.segments + 1,
+    Math.max(2, Math.floor(mem.progress * mem.orbit.segments) + 1)
+  );
+
   const attr = mem.orbit.line.geometry.getAttribute('position');
+
   for (let i = 0; i < count; i++) {
-    const u = i / 220;
-    const a = mem.startAngle + mem.direction * u * Math.PI * 2;
-    const p = localOrbitPoint(mem.orbit, a);
+    const u = i / mem.orbit.segments;
+    const angle = mem.startAngle + mem.direction * u * Math.PI * 2;
+    const p = new THREE.Vector3(
+      Math.cos(angle) * mem.orbit.radius,
+      Math.sin(angle) * mem.orbit.radius,
+      0
+    );
     attr.setXYZ(i, p.x, p.y, p.z);
   }
+
   attr.needsUpdate = true;
   mem.orbit.line.geometry.setDrawRange(0, count);
 }
 
 function spawnMemory() {
-  const def = makeUniqueMemoryOrbit();
+  const def = createUniqueMemoryOrbit();
+
   const s = sprite(rnd() > 0.45 ? C.soft : C.gold, 0.16, 1);
   s.position.set(0, 0, 0.06);
   root.add(s);
 
   const startAngle = rnd() * Math.PI * 2;
   const direction = rnd() > 0.5 ? 1 : -1;
-  const speed = (0.28 + rnd() * 0.40) * direction;
 
-  memories.push({ sprite: s, orbit: def, angle: startAngle, startAngle, direction, speed, age: 0, launch: 0.72, drawing: true, progress: 0, traveled: 0 });
+  memories.push({
+    sprite: s,
+    orbit: def,
+    angle: startAngle,
+    startAngle,
+    direction,
+    speed: (0.28 + rnd() * 0.40) * direction,
+    age: 0,
+    launch: 1.2,
+    drawing: true,
+    progress: 0,
+    traveled: 0,
+  });
 }
 
 let paused = false;
@@ -263,6 +300,7 @@ function animate() {
       const wobble = 1 + Math.sin(t * 1.45 + s.userData.phase) * 0.024;
       s.position.set(p.x * wobble, p.y * wobble, p.z);
     }
+
     for (const s of sparks.children) {
       const p = s.userData.base;
       const wobble = 1 + Math.sin(t * 1.5 + s.userData.phase) * 0.022;
@@ -271,30 +309,36 @@ function animate() {
 
     for (const mem of memories) {
       mem.age += dt;
+
+      // First: the new memory leaves the core. Orbit stays invisible here.
       if (mem.age < mem.launch) {
         const u = mem.age / mem.launch;
         const ease = 1 - Math.pow(1 - u, 3);
-        const first = orbitPoint(mem.orbit, mem.startAngle);
+        const first = memoryOrbitPoint(mem.orbit, mem.startAngle);
         mem.sprite.position.lerpVectors(new THREE.Vector3(0, 0, 0.06), first, ease);
         mem.sprite.scale.setScalar(0.16 * (0.35 + 0.65 * ease));
         continue;
       }
 
+      // Then: it travels on ONLY its own new orbit.
       const step = Math.abs(mem.speed) * dt;
       mem.angle += mem.speed * dt;
       mem.traveled += step;
-      mem.sprite.position.copy(orbitPoint(mem.orbit, mem.angle));
+      mem.sprite.position.copy(memoryOrbitPoint(mem.orbit, mem.angle));
 
+      // During first lap: draw the blue line behind the moving memory.
       if (mem.drawing) {
         mem.progress = Math.min(1, mem.traveled / (Math.PI * 2));
-        updateGrowingOrbit(mem);
+        drawMemoryOrbitBehind(mem);
+
         if (mem.progress >= 1) {
           mem.drawing = false;
-          mem.orbit.line.geometry.setDrawRange(0, 221);
+          mem.orbit.line.geometry.setDrawRange(0, mem.orbit.segments + 1);
         }
       }
     }
   }
+
   composer.render();
 }
 animate();
