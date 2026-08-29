@@ -87,12 +87,13 @@ const orbitGroup = new THREE.Group();
 root.add(orbitGroup);
 
 function makeOrbit(index) {
-  const rx = 2.35 + rnd() * 1.55;
-  const ry = 0.72 + rnd() * 1.05;
+  // Keep the original paths varied, but stop the largest ones from clipping off-screen.
+  const rx = 2.20 + rnd() * 1.20;
+  const ry = 0.70 + rnd() * 0.90;
   const zRot = rnd() * Math.PI;
   const xRot = (rnd() - 0.5) * 0.82;
   const yRot = (rnd() - 0.5) * 0.46;
-  const offset = new THREE.Vector3((rnd() - 0.5) * 0.26, (rnd() - 0.5) * 0.20, (rnd() - 0.5) * 0.16);
+  const offset = new THREE.Vector3((rnd() - 0.5) * 0.22, (rnd() - 0.5) * 0.16, (rnd() - 0.5) * 0.14);
   const color = index % 3 === 0 ? C.gold : C.red;
 
   const pts = [];
