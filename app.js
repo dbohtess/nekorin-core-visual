@@ -50,7 +50,6 @@ function makeGlowTexture() {
   ctx.fillRect(0, 0, 128, 128);
   return new THREE.CanvasTexture(c);
 }
-
 const glowTex = makeGlowTexture();
 
 function sprite(color, size, opacity = 1) {
@@ -82,6 +81,7 @@ function sprite(color, size, opacity = 1) {
   root.add(new THREE.Points(g, new THREE.PointsMaterial({ size: 0.018, vertexColors: true, transparent: true, opacity: 0.58, blending: THREE.AdditiveBlending, depthWrite: false })));
 }
 
+// Existing visual paths: exactly ONE node on each path.
 const orbitDefs = [];
 const orbitGroup = new THREE.Group();
 root.add(orbitGroup);
@@ -97,9 +97,8 @@ function makeOrbit(index) {
 
   const pts = [];
   const start = rnd() * Math.PI * 2;
-  const span = Math.PI * 2;
   for (let i = 0; i < 220; i++) {
-    const t = start + (i / 219) * span;
+    const t = start + (i / 219) * Math.PI * 2;
     pts.push(new THREE.Vector3(Math.cos(t) * rx, Math.sin(t) * ry, 0));
   }
 
@@ -111,16 +110,12 @@ function makeOrbit(index) {
   const def = { rx, ry, line };
   orbitDefs.push(def);
 
-  const nodeCount = 2 + Math.floor(rnd() * 3);
-  for (let n = 0; n < nodeCount; n++) {
-    const s = sprite(n % 3 === 0 ? C.soft : color, 0.11 + rnd() * 0.05, 0.82);
-    s.userData.angle = rnd() * Math.PI * 2;
-    s.userData.speed = (0.21 + rnd() * 0.30) * (rnd() > 0.5 ? 1 : -1);
-    s.userData.orbit = def;
-    orbitGroup.add(s);
-  }
+  const s = sprite(index % 3 === 0 ? C.soft : color, 0.11 + rnd() * 0.05, 0.82);
+  s.userData.angle = rnd() * Math.PI * 2;
+  s.userData.speed = (0.21 + rnd() * 0.30) * (rnd() > 0.5 ? 1 : -1);
+  s.userData.orbit = def;
+  orbitGroup.add(s);
 }
-
 for (let i = 0; i < 7; i++) makeOrbit(i);
 
 function orbitPoint(def, angle) {
@@ -130,7 +125,7 @@ function orbitPoint(def, angle) {
   return p;
 }
 
-// CLEAN CORE — no lattice and no concentric rings.
+// CLEAN CORE.
 const core = new THREE.Group();
 root.add(core);
 for (let i = 0; i < 115; i++) {
@@ -166,7 +161,8 @@ for (let i = 0; i < 85; i++) {
   sparks.add(s);
 }
 
-// Each M memory gets its OWN orbit. The node draws the orbit behind itself on its first lap.
+// M: one new node -> one brand-new private path.
+// The path does NOT exist before the node starts moving; the node draws it behind itself.
 const memories = [];
 const memoryOrbitSignatures = [];
 
@@ -176,7 +172,7 @@ function angleDistance(a, b) {
 }
 
 function makeUniqueMemoryOrbit() {
-  for (let attempt = 0; attempt < 60; attempt++) {
+  for (let attempt = 0; attempt < 80; attempt++) {
     const rx = 2.20 + rnd() * 1.85;
     const ry = 0.68 + rnd() * 1.25;
     const zRot = rnd() * Math.PI;
@@ -185,11 +181,11 @@ function makeUniqueMemoryOrbit() {
     const offset = new THREE.Vector3((rnd() - 0.5) * 0.34, (rnd() - 0.5) * 0.26, (rnd() - 0.5) * 0.18);
 
     const tooClose = memoryOrbitSignatures.some(o =>
-      Math.abs(o.rx - rx) < 0.22 &&
-      Math.abs(o.ry - ry) < 0.16 &&
-      angleDistance(o.zRot, zRot) < 0.18 &&
-      Math.abs(o.xRot - xRot) < 0.14 &&
-      Math.abs(o.yRot - yRot) < 0.14
+      Math.abs(o.rx - rx) < 0.28 &&
+      Math.abs(o.ry - ry) < 0.20 &&
+      angleDistance(o.zRot, zRot) < 0.22 &&
+      Math.abs(o.xRot - xRot) < 0.17 &&
+      Math.abs(o.yRot - yRot) < 0.17
     );
     if (tooClose) continue;
 
@@ -197,7 +193,6 @@ function makeUniqueMemoryOrbit() {
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(221 * 3), 3));
     geometry.setDrawRange(0, 0);
-
     const color = rnd() > 0.38 ? C.red : C.gold;
     const line = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.19, blending: THREE.AdditiveBlending }));
     line.rotation.set(xRot, yRot, zRot);
@@ -205,7 +200,7 @@ function makeUniqueMemoryOrbit() {
     root.add(line);
     return { rx, ry, line, color };
   }
-  return makeUniqueMemoryOrbit();
+  throw new Error('Could not generate a unique memory orbit');
 }
 
 function localOrbitPoint(def, angle) {
@@ -235,19 +230,7 @@ function spawnMemory() {
   const direction = rnd() > 0.5 ? 1 : -1;
   const speed = (0.28 + rnd() * 0.40) * direction;
 
-  memories.push({
-    sprite: s,
-    orbit: def,
-    angle: startAngle,
-    startAngle,
-    direction,
-    speed,
-    age: 0,
-    launch: 0.72,
-    drawing: true,
-    progress: 0,
-    traveled: 0,
-  });
+  memories.push({ sprite: s, orbit: def, angle: startAngle, startAngle, direction, speed, age: 0, launch: 0.72, drawing: true, progress: 0, traveled: 0 });
 }
 
 let paused = false;
@@ -258,7 +241,6 @@ addEventListener('keydown', (e) => {
 
 const clock = new THREE.Clock();
 let t = 0;
-
 function animate() {
   requestAnimationFrame(animate);
   const dt = Math.min(clock.getDelta(), 0.05);
@@ -281,7 +263,6 @@ function animate() {
       const wobble = 1 + Math.sin(t * 1.45 + s.userData.phase) * 0.024;
       s.position.set(p.x * wobble, p.y * wobble, p.z);
     }
-
     for (const s of sparks.children) {
       const p = s.userData.base;
       const wobble = 1 + Math.sin(t * 1.5 + s.userData.phase) * 0.022;
@@ -290,7 +271,6 @@ function animate() {
 
     for (const mem of memories) {
       mem.age += dt;
-
       if (mem.age < mem.launch) {
         const u = mem.age / mem.launch;
         const ease = 1 - Math.pow(1 - u, 3);
@@ -315,10 +295,8 @@ function animate() {
       }
     }
   }
-
   composer.render();
 }
-
 animate();
 
 addEventListener('resize', () => {
