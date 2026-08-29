@@ -162,7 +162,7 @@ for (let i = 0; i < 85; i++) {
 }
 
 // M creates ONE new persistent memory node with ONE brand-new orbit.
-// The orbit starts invisible and is drawn progressively behind the node.
+// New memory paths stay compact/on-screen, draw in blue, then become red at 100%.
 const memories = [];
 const memoryOrbitSignatures = [];
 
@@ -172,21 +172,25 @@ function angleDistance(a, b) {
 }
 
 function createUniqueMemoryOrbit() {
-  for (let attempt = 0; attempt < 80; attempt++) {
-    const radius = 2.2 + rnd() * 1.5;
-    const tiltX = (rnd() - 0.5) * Math.PI * 0.8;
-    const tiltY = (rnd() - 0.5) * Math.PI * 0.8;
+  for (let attempt = 0; attempt < 100; attempt++) {
+    // Keep new memories inside the same visual field as the original paths.
+    const rx = 2.15 + rnd() * 0.95;
+    const ry = 0.72 + rnd() * 0.72;
+    const tiltX = (rnd() - 0.5) * 0.62;
+    const tiltY = (rnd() - 0.5) * 0.34;
     const tiltZ = rnd() * Math.PI;
+    const offset = new THREE.Vector3((rnd() - 0.5) * 0.16, (rnd() - 0.5) * 0.12, (rnd() - 0.5) * 0.08);
 
     const tooClose = memoryOrbitSignatures.some(o =>
-      Math.abs(o.radius - radius) < 0.24 &&
-      angleDistance(o.tiltX, tiltX) < 0.16 &&
-      angleDistance(o.tiltY, tiltY) < 0.16 &&
-      angleDistance(o.tiltZ, tiltZ) < 0.18
+      Math.abs(o.rx - rx) < 0.20 &&
+      Math.abs(o.ry - ry) < 0.16 &&
+      angleDistance(o.tiltZ, tiltZ) < 0.18 &&
+      Math.abs(o.tiltX - tiltX) < 0.13 &&
+      Math.abs(o.tiltY - tiltY) < 0.11
     );
     if (tooClose) continue;
 
-    memoryOrbitSignatures.push({ radius, tiltX, tiltY, tiltZ });
+    memoryOrbitSignatures.push({ rx, ry, tiltX, tiltY, tiltZ });
 
     const segments = 220;
     const positions = new Float32Array((segments + 1) * 3);
@@ -204,9 +208,10 @@ function createUniqueMemoryOrbit() {
       })
     );
     line.rotation.set(tiltX, tiltY, tiltZ);
+    line.position.copy(offset);
     root.add(line);
 
-    return { radius, line, segments };
+    return { rx, ry, line, segments };
   }
 
   throw new Error('Could not generate a unique memory orbit');
@@ -214,11 +219,12 @@ function createUniqueMemoryOrbit() {
 
 function memoryOrbitPoint(def, angle) {
   const p = new THREE.Vector3(
-    Math.cos(angle) * def.radius,
-    Math.sin(angle) * def.radius,
+    Math.cos(angle) * def.rx,
+    Math.sin(angle) * def.ry,
     0
   );
   p.applyEuler(def.line.rotation);
+  p.add(def.line.position);
   return p;
 }
 
@@ -234,8 +240,8 @@ function drawMemoryOrbitBehind(mem) {
     const u = i / mem.orbit.segments;
     const angle = mem.startAngle + mem.direction * u * Math.PI * 2;
     const p = new THREE.Vector3(
-      Math.cos(angle) * mem.orbit.radius,
-      Math.sin(angle) * mem.orbit.radius,
+      Math.cos(angle) * mem.orbit.rx,
+      Math.sin(angle) * mem.orbit.ry,
       0
     );
     attr.setXYZ(i, p.x, p.y, p.z);
@@ -326,7 +332,7 @@ function animate() {
       mem.traveled += step;
       mem.sprite.position.copy(memoryOrbitPoint(mem.orbit, mem.angle));
 
-      // During first lap: draw the blue line behind the moving memory.
+      // 0-99% = blue. At exactly 100% the completed path becomes red.
       if (mem.drawing) {
         mem.progress = Math.min(1, mem.traveled / (Math.PI * 2));
         drawMemoryOrbitBehind(mem);
@@ -334,6 +340,9 @@ function animate() {
         if (mem.progress >= 1) {
           mem.drawing = false;
           mem.orbit.line.geometry.setDrawRange(0, mem.orbit.segments + 1);
+          mem.orbit.line.material.color.setHex(C.red);
+          mem.orbit.line.material.opacity = 0.15;
+          mem.orbit.line.material.needsUpdate = true;
         }
       }
     }
